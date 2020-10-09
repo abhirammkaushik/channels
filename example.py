@@ -13,13 +13,24 @@ def send_integers(ch):
     for i in range(10):
         ch.send(D(i))
         print("Sent ", i)
+    sleep(10)
+    for i in range(10, 20):
+        ch.send(D(i))
+        print("Sent ", i)
     ch.close()
 
 
 def receive_integers(ch):
-    for idx, i in enumerate(ch):
-        print("Received ", i.i, len(ch))
+    for j in range(10):
+        msg, ok = ch.receive()
+        if ok:
+            print("Received ", msg.i)
         sleep(0.5)
+    for i in ch:
+        print("Received ", i.i)
+    msg, ok = ch.receive()
+    if ok:
+        print(msg.i)
 
 
 if __name__ == '__main__':
