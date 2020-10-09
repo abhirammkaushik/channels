@@ -14,15 +14,10 @@ class Channel:
         2. Receive - receives a message from the channel
         3. Close - closes the channel
 
-    Channels can also be iterated over usina a for loop.
-    Iterate over channels only if you want to flush out the remaining items in its buffer
+    Channels can also be iterated over using a for loop.
     """
 
     __MAX_WAIT_TIME = 30.0
-
-    class _Done:
-        """ class representing end of buffer once closed """
-        pass
 
     def __init__(self, _type, size=-1):
         """ initializing for channels"""
@@ -31,84 +26,127 @@ class Channel:
         self.__type = _type
         self.__cond = Condition()
         self.__closed = False
+        self.__zero_value_map = {int: 0, float: 0.0, str: '', tuple: (), list: [], dict: {}, set: set()}
 
     @property
     def capacity(self):
         return self.__capacity
 
     def __len__(self):
-        """ :return number of messages in the channel """
+        """
+        Calculates the number of messages in the channel
+        :return number of messages in the channel
+        """
         with self.__cond:
             return self.__buffer.size
 
     def __is_empty(self):
-        """ :return whether channel is empty """
+        """
+        checks whether a channel is empty
+        :return True if a channel is empty, False otherwise
+        """
         return len(self) == 0
 
     def __is_full(self):
-        """ :return bool indicating whether a channel is full """
+        """
+        checks whether a channel is full. A channel with size -1 is never full.
+        :return True if a channel is full, False otherwise """
         with self.__cond:
             return self.__buffer.size == self.__capacity
 
     def __flushed_buffer(self):
-        """ :returns True if the channel has been closed and emptied, false otherwise"""
+        """
+        Checks whether the channel has been closed and emptied.
+        :returns True if the channel has been closed and emptied, false otherwise
+        """
         with self.__cond:
             return self.__closed and self.__buffer.head is None
 
+    def __zero_value(self):
+        """
+        Calculates the zero value of the type of the channel.
+        Zero Values are values or expressions of a particular type which evaluate to False as a boolean.
+        Zero values for default python types are stored in a dictionary
+        :return: zero value of the default python types, None for other types
+        """
+        try:
+            return self.__zero_value_map[self.__type]
+        except KeyError:
+            return None
+
     def __iter__(self):
-        """ iterate over the channel and depopulate it. Returns each message after depopulating """
+        """
+        Iterate over the channel and depopulate it. Exits when the buffer has been flushed
+        :returns each message in the buffer. """
         while not self.__flushed_buffer():
-            message = self.__depopulate()
-            if isinstance(message, self._Done):
+            message, ok = self.__depopulate()
+            if not ok:
                 return
             yield message
-        return
 
     def __check_type(self, _input):
-        """ ensure type check for channels """
+        """
+        Ensure type check for channels.
+        :param _input: input to be checked
+        :raises TypeMismatchException if input object is not an instance of type defined during initialization of the
+        channel
+        """
         if not isinstance(_input, self.__type):
             raise TypeMismatchException("Input Type does not match the type of channel")
 
-    def __wait(self, wait_time=__MAX_WAIT_TIME):
+    def __wait(self):
+        """
+        Waits for a specified amount of time. This is necessary when waiting for a thread to finish sending or receiving
+        over the channel
+        """
         with self.__cond:
-            self.__cond.wait(wait_time)
+            self.__cond.wait(self.__class__.__MAX_WAIT_TIME)
 
     def is_closed(self):
-        """ :return bool indicating whether a channel is open or closed"""
+        """
+        Checks whether a channel closed
+        :return True a channel is closed, False otherwise
+        """
         with self.__cond:
             return self.__closed
 
-    def __populate(self, item):
-        """ populates the channel with an message. If channel is at capacity, waits till channel is
-        depopulated at least once. Also notifies all threads waiting to receive on the other end of the channel"""
-        self.__check_type(item)
+    def __populate(self, message):
+        """
+        Populates the channel with an message. If channel is at capacity, waits till channel is
+        depopulated at least once. Also notifies all threads waiting to receive on the other end of the channel
+        :param message: message to be added to the buffer
+        """
+        self.__check_type(message)
         if self.__capacity != -1 and self.__is_full():
             while not self.is_closed() and self.__is_full():
                 self.__wait()
             if self.is_closed():
                 return
         with self.__cond:
-            self.__buffer.insert(item)
+            self.__buffer.insert(message)
             self.__cond.notifyAll()
 
     def __depopulate(self):
-        """ depopulates the channel and returns the message. If channel is empty, waits till channel is
+        """
+        Depopulates the channel and returns the message. If channel is empty, waits till channel is
         populated at least once. If the channel is closed before depopulating, a special object is returned.
         Also notifies all threads waiting to send on the other end of the channel.
-        :return message if channel is open"""
+        :return tuple of (message, True) if channel is open, tuple of (None, False) otherwise
+        """
         while not self.is_closed() and self.__is_empty():
             self.__wait()
         if self.__flushed_buffer():
-            return self._Done()
+            return None, False
         with self.__cond:
             message = self.__buffer.delete()
             self.__cond.notifyAll()
-            return message
+            return message, True
 
     def send(self, message):
         """
         Sends a message across the channel. Raises an exception if it is called on a closed channel
-        :exception raises ChannelClosedException if send is called on a closed channel
+        :param message: message to be sent on the channel
+        :raises ChannelClosedException if send is called on a closed channel
         """
         if self.is_closed():
             raise ChannelClosedException("Invalid operation send on closed channel")
@@ -119,13 +157,16 @@ class Channel:
         Receives a message from the channel
         :returns a message from the buffer
         """
-        message = self.__depopulate()
-        if isinstance(message, self._Done):
-            return
-        return message
+        message, ok = self.__depopulate()
+        if not ok:
+            return self.__zero_value(), False
+        return message, True
 
     def close(self):
-        """ Closes the channel. Raises exception if it is called on a closed channel"""
+        """
+        Closes the channel.
+        :raises ChannelClosedException if it is called on a closed channel
+        """
         with self.__cond:
             if self.__closed:
                 raise ChannelClosedException("Cannot close a closed channel")
