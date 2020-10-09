@@ -21,11 +21,11 @@ class Channel:
 
     def __init__(self, _type, size=-1):
         """ initializing for channels"""
-        self.__capacity = size
         self.__buffer = LinkedList()
-        self.__type = _type
-        self.__cond = Condition()
+        self.__capacity = size
         self.__closed = False
+        self.__cond = Condition()
+        self.__type = _type
         self.__zero_value_map = {int: 0, float: 0.0, str: '', tuple: (), list: [], dict: {}, set: set()}
 
     @property
@@ -102,7 +102,7 @@ class Channel:
         with self.__cond:
             self.__cond.wait(self.__class__.__MAX_WAIT_TIME)
 
-    def is_closed(self):
+    def __is_closed(self):
         """
         Checks whether a channel closed
         :return True a channel is closed, False otherwise
@@ -118,9 +118,9 @@ class Channel:
         """
         self.__check_type(message)
         if self.__capacity != -1 and self.__is_full():
-            while not self.is_closed() and self.__is_full():
+            while not self.__is_closed() and self.__is_full():
                 self.__wait()
-            if self.is_closed():
+            if self.__is_closed():
                 return
         with self.__cond:
             self.__buffer.insert(message)
@@ -133,7 +133,7 @@ class Channel:
         Also notifies all threads waiting to send on the other end of the channel.
         :return tuple of (message, True) if channel is open, tuple of (None, False) otherwise
         """
-        while not self.is_closed() and self.__is_empty():
+        while not self.__is_closed() and self.__is_empty():
             self.__wait()
         if self.__flushed_buffer():
             return None, False
@@ -148,7 +148,7 @@ class Channel:
         :param message: message to be sent on the channel
         :raises ChannelClosedException if send is called on a closed channel
         """
-        if self.is_closed():
+        if self.__is_closed():
             raise ChannelClosedException("Invalid operation send on closed channel")
         self.__populate(message)
 
