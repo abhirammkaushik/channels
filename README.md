@@ -78,7 +78,7 @@ for message in ch:
 cap = ch.capacity
 ``` 
 
-##Example
+## Example
 A sample example demonstrating usage of all functions
 ```python
 from channel import Channel
